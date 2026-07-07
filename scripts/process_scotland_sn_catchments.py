@@ -71,6 +71,7 @@ def main():
     parser.add_argument("--basename", required=True)
     parser.add_argument("--schools-csv", required=True)
     parser.add_argument("--lookup-csv", required=True)
+    parser.add_argument("--manual-overrides-csv", required=False, default="")
     parser.add_argument("--geojson-output-dir", required=True)
     parser.add_argument("--outputs-dir", required=True)
     parser.add_argument("--github-raw-base-url", required=True)
@@ -87,6 +88,10 @@ def main():
 
     schools = pd.read_csv(args.schools_csv)
     lookup = pd.read_csv(args.lookup_csv)
+    manual_overrides = pd.DataFrame()
+
+if args.manual_overrides_csv and Path(args.manual_overrides_csv).exists():
+    manual_overrides = pd.read_csv(args.manual_overrides_csv)
 
     # Ensure expected columns exist
     required_school_cols = ["SchoolName", "PostCode_clean", "LAName", "SeedCode"]
@@ -123,6 +128,37 @@ def main():
         .apply(list)
         .to_dict()
     )
+manual_override_by_source_row = {}
+
+if not manual_overrides.empty:
+    required_override_cols = [
+        "source_row",
+        "target_school_name",
+        "target_local_auth",
+    ]
+
+    missing_override_cols = [
+        c for c in required_override_cols
+        if c not in manual_overrides.columns
+    ]
+
+    if missing_override_cols:
+        raise ValueError(
+            f"Missing columns in manual overrides CSV: {missing_override_cols}"
+        )
+
+    for _, override_row in manual_overrides.iterrows():
+        source_row = int(override_row["source_row"])
+        target_school_name_norm = norm_text(override_row["target_school_name"])
+        target_local_auth_norm = norm_text(override_row["target_local_auth"])
+
+        manual_override_by_source_row[source_row] = {
+            "target_school_name": override_row["target_school_name"],
+            "target_local_auth": override_row["target_local_auth"],
+            "target_school_name_norm": target_school_name_norm,
+            "target_local_auth_norm": target_local_auth_norm,
+            "override_reason": override_row.get("override_reason", ""),
+        }
 
     reader = shapefile.Reader(str(shp_path))
     fields = [f[0] for f in reader.fields[1:]]
@@ -149,6 +185,31 @@ def main():
         matched_school_key = ""
         matched_method = "unmatched"
         match_count = 0
+
+# 0. Manual override match
+manual_override = manual_override_by_source_row.get(idx)
+
+if manual_override:
+    override_keys = name_la_to_keys.get(
+        (
+            manual_override["target_school_name_norm"],
+            manual_override["target_local_auth_norm"],
+        ),
+        [],
+    )
+
+    match_count = len(override_keys)
+
+    if len(override_keys) == 1:
+        matched_school_key = override_keys[0]
+        matched_method = "manual_override"
+    elif len(override_keys) > 1:
+        matched_method = "manual_override_multiple"
+    else:
+        matched_method = "manual_override_target_not_found"
+
+# 1. Seed code match
+if not matched_school_key and source_seed and source_seed in seed_to_keys:
 
         # 1. Seed code match
         if source_seed and source_seed in seed_to_keys:
@@ -290,6 +351,7 @@ def main():
     seed_matches = int((match_df["matched_method"] == "seed_code").sum())
     name_la_matches = int((match_df["matched_method"] == "school_name_and_la").sum())
     name_only_matches = int((match_df["matched_method"] == "school_name_only").sum())
+    manual_override_matches = int((match_df["matched_method"]
 
     summary = f"""# Scotland Secondary Non-Denominational Catchment Processing Summary
 
@@ -313,6 +375,7 @@ def main():
 - Matched catchments: `{matched_count}`
 - Unmatched catchments: `{unmatched_count}`
 - Seed-code matches: `{seed_matches}`
+- Manual override matches: `{manual_override_matches}`
 - School name + LA matches: `{name_la_matches}`
 - School name only matches: `{name_only_matches}`
 - Lookup rows with real catchment URL after update: `{int(updated_lookup["HasRealCatchmentGeoJson"].sum())}`
