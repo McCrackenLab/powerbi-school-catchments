@@ -31,10 +31,11 @@ jobs:
             --basename non_denom_pub_schlsn \
             --schools-csv inputs/scottish_secondary_schools_for_mapping.csv \
             --lookup-csv inputs/school_reference_layer_lookup_with_fallback_and_fife_catchments.csv \
+            --manual-overrides-csv inputs/scotland_sn_manual_catchment_overrides.csv \
             --geojson-output-dir scotland-secondary-non-denom-catchments \
             --outputs-dir outputs/scotland-secondary-non-denom \
             --github-raw-base-url https://raw.githubusercontent.com/McCrackenLab/powerbi-school-catchments/refs/heads/main/scotland-secondary-non-denom-catchments/
-
+            
       - name: Commit generated outputs
         run: |
           git config user.name "github-actions[bot]"
