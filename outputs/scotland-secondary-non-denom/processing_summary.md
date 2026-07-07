@@ -1,0 +1,29 @@
+# Scotland Secondary Non-Denominational Catchment Processing Summary
+
+## Inputs
+
+- Shapefile: `incoming/scotland-secondary-non-denom/non_denom_pub_schlsn.shp`
+- Schools CSV: `inputs/scottish_secondary_schools_for_mapping.csv`
+- Lookup CSV: `inputs/school_reference_layer_lookup_with_fallback_and_fife_catchments.csv`
+
+## Outputs
+
+- Split GeoJSON folder: `scotland-secondary-non-denom-catchments`
+- Updated lookup: `outputs/scotland-secondary-non-denom/school_reference_layer_lookup_plus_scotland_sn.csv`
+- Match review: `outputs/scotland-secondary-non-denom/scotland_sn_catchment_match_review.csv`
+- GeoJSON index: `outputs/scotland-secondary-non-denom/scotland_sn_catchment_geojson_index.csv`
+
+## Counts
+
+- Catchment records processed: `324`
+- GeoJSON files created: `324`
+- Matched catchments: `281`
+- Unmatched catchments: `43`
+- Seed-code matches: `278`
+- School name + LA matches: `1`
+- School name only matches: `2`
+- Lookup rows with real catchment URL after update: `275`
+
+## Notes
+
+The source shapefile is assumed to be EPSG:27700 British National Grid and is transformed to EPSG:4326 for GeoJSON output.
