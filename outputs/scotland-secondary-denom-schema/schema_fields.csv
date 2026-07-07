@@ -1,0 +1,15 @@
+field_name,field_type,size,decimal
+local_auth,C,254,0
+school_nam,C,254,0
+la_s_code,C,254,0
+seed_code,N,19,0
+uprn,N,33,15
+address,C,254,0
+type,C,254,0
+level,C,254,0
+email,C,254,0
+phone,C,254,0
+website,C,254,0
+sh_date_up,C,254,0
+sh_src,C,254,0
+sh_src_id,N,19,0
