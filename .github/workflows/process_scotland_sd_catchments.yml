@@ -1,0 +1,73 @@
+name: Process Scotland Secondary Denominational Catchments
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  process-catchments:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Show repository state
+        run: |
+          echo "Current branch:"
+          git branch --show-current
+          echo ""
+          echo "Current commit:"
+          git rev-parse HEAD
+          echo ""
+          echo "Incoming denominational shapefile files:"
+          ls -la incoming/scotland-secondary-denom || true
+          echo ""
+          echo "Required previous SN lookup:"
+          ls -la outputs/scotland-secondary-non-denom/school_reference_layer_lookup_plus_scotland_sn.csv || true
+          echo ""
+          echo "Scripts:"
+          ls -la scripts || true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python packages
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyshp pandas pyproj
+
+      - name: Process denominational shapefile into split GeoJSON and lookup
+        run: |
+          python scripts/process_scotland_sd_catchments.py \
+            --input-dir incoming/scotland-secondary-denom \
+            --basename denom_pub_schlsd \
+            --schools-csv inputs/scottish_secondary_schools_for_mapping.csv \
+            --lookup-csv outputs/scotland-secondary-non-denom/school_reference_layer_lookup_plus_scotland_sn.csv \
+            --geojson-output-dir scotland-secondary-denom-catchments \
+            --outputs-dir outputs/scotland-secondary-denom \
+            --github-raw-base-url https://raw.githubusercontent.com/McCrackenLab/powerbi-school-catchments/refs/heads/main/scotland-secondary-denom-catchments/
+
+      - name: Show generated summary and git status
+        run: |
+          echo ""
+          echo "Generated processing summary:"
+          cat outputs/scotland-secondary-denom/processing_summary.md
+          echo ""
+          echo "Git status after processing:"
+          git status --short
+
+      - name: Commit generated outputs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add scotland-secondary-denom-catchments outputs/scotland-secondary-denom
+          git status --short
+          git diff --cached --quiet || git commit -m "Process Scotland secondary denominational catchments"
+          git push
