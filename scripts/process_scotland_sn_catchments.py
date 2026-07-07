@@ -326,3 +326,165 @@ def main():
         geom = shape_record.shape.__geo_interface__
         transformed_geom = transform_geometry(geom, transformer)
 
+        feature_props = {
+            "source_school_nam": source_school_name,
+            "source_local_auth": source_local_auth,
+            "source_la_s_code": props.get("la_s_code", ""),
+            "source_seed_code": source_seed,
+            "source_type": props.get("type", ""),
+            "source_level": props.get("level", ""),
+            "matched_school_key": matched_school_key,
+            "matched_method": matched_method,
+            "manual_override_reason": manual_override_reason,
+            "catchment_layer": "Scotland secondary non-denominational",
+        }
+
+        fc = {
+            "type": "FeatureCollection",
+            "name": filename.replace(".geojson", ""),
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": transformed_geom,
+                    "properties": feature_props,
+                }
+            ],
+        }
+
+        out_path = geojson_output_dir / filename
+
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(fc, f, ensure_ascii=False, separators=(",", ":"))
+
+        if matched_school_key:
+            url_updates[matched_school_key] = geojson_url
+
+        match_rows.append(
+            {
+                "source_row": idx,
+                "source_school_nam": source_school_name,
+                "source_local_auth": source_local_auth,
+                "source_seed_code": source_seed,
+                "matched_school_key": matched_school_key,
+                "matched_method": matched_method,
+                "match_count": match_count,
+                "manual_override_reason": manual_override_reason,
+                "geojson_filename": filename,
+                "geojson_url": geojson_url,
+            }
+        )
+
+        index_rows.append(
+            {
+                "geojson_filename": filename,
+                "geojson_url": geojson_url,
+                "source_school_nam": source_school_name,
+                "source_local_auth": source_local_auth,
+                "source_seed_code": source_seed,
+                "matched_school_key": matched_school_key,
+                "matched_method": matched_method,
+            }
+        )
+
+    match_df = pd.DataFrame(match_rows)
+    index_df = pd.DataFrame(index_rows)
+
+    updated_lookup = lookup.copy()
+
+    if "HasRealCatchmentGeoJson" not in updated_lookup.columns:
+        updated_lookup["HasRealCatchmentGeoJson"] = False
+
+    def update_url(row):
+        key = row["SchoolKey"]
+
+        if key in url_updates:
+            return url_updates[key]
+
+        return row.get("CatchmentGeoJsonUrl", "")
+
+    updated_lookup["CatchmentGeoJsonUrl"] = updated_lookup.apply(update_url, axis=1)
+
+    updated_lookup["HasRealCatchmentGeoJson"] = (
+        updated_lookup["CatchmentGeoJsonUrl"]
+        .fillna("")
+        .astype(str)
+        .str.len()
+        > 0
+    )
+
+    # Preserve __ALL__ as no real catchment
+    updated_lookup.loc[
+        updated_lookup["SchoolKey"].eq("__ALL__"),
+        "CatchmentGeoJsonUrl",
+    ] = ""
+
+    updated_lookup.loc[
+        updated_lookup["SchoolKey"].eq("__ALL__"),
+        "HasRealCatchmentGeoJson",
+    ] = False
+
+    updated_lookup_path = outputs_dir / "school_reference_layer_lookup_plus_scotland_sn.csv"
+    match_review_path = outputs_dir / "scotland_sn_catchment_match_review.csv"
+    index_path = outputs_dir / "scotland_sn_catchment_geojson_index.csv"
+    summary_path = outputs_dir / "processing_summary.md"
+
+    updated_lookup.to_csv(updated_lookup_path, index=False)
+    match_df.to_csv(match_review_path, index=False)
+    index_df.to_csv(index_path, index=False)
+
+    matched_count = int(match_df["matched_school_key"].fillna("").astype(str).str.len().gt(0).sum())
+    unmatched_count = int(len(match_df) - matched_count)
+
+    seed_matches = int((match_df["matched_method"] == "seed_code").sum())
+    manual_override_matches = int((match_df["matched_method"] == "manual_override").sum())
+    manual_override_target_not_found = int((match_df["matched_method"] == "manual_override_target_not_found").sum())
+    manual_override_multiple = int((match_df["matched_method"] == "manual_override_multiple").sum())
+    name_la_matches = int((match_df["matched_method"] == "school_name_and_la").sum())
+    name_only_matches = int((match_df["matched_method"] == "school_name_only").sum())
+
+    lookup_real_count = int(updated_lookup["HasRealCatchmentGeoJson"].sum())
+
+    summary = f"""# Scotland Secondary Non-Denominational Catchment Processing Summary
+
+## Inputs
+
+- Shapefile: `{shp_path}`
+- Schools CSV: `{args.schools_csv}`
+- Lookup CSV: `{args.lookup_csv}`
+- Manual overrides CSV: `{args.manual_overrides_csv}`
+
+## Outputs
+
+- Split GeoJSON folder: `{geojson_output_dir}`
+- Updated lookup: `{updated_lookup_path}`
+- Match review: `{match_review_path}`
+- GeoJSON index: `{index_path}`
+
+## Counts
+
+- Catchment records processed: `{len(match_df)}`
+- GeoJSON files created: `{len(index_df)}`
+- Matched catchments: `{matched_count}`
+- Unmatched catchments: `{unmatched_count}`
+- Seed-code matches: `{seed_matches}`
+- Manual override matches: `{manual_override_matches}`
+- Manual override target not found: `{manual_override_target_not_found}`
+- Manual override multiple matches: `{manual_override_multiple}`
+- School name + LA matches: `{name_la_matches}`
+- School name only matches: `{name_only_matches}`
+- Lookup rows with real catchment URL after update: `{lookup_real_count}`
+
+## Notes
+
+The source shapefile is assumed to be EPSG:27700 British National Grid and is transformed to EPSG:4326 for GeoJSON output.
+
+Manual overrides are applied before automatic seed-code and name matching.
+"""
+
+    summary_path.write_text(summary, encoding="utf-8")
+
+    print(summary)
+
+
+if __name__ == "__main__":
+    main()
