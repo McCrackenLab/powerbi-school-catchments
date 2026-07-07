@@ -1,0 +1,1 @@
+{"type":"FeatureCollection","name":"global_no_selection_fallback","features":[{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[-4.00001,56.799989999999994],[-3.99999,56.799989999999994],[-3.99999,56.80001],[-4.00001,56.80001],[-4.00001,56.799989999999994]]]},"properties":{"fallback_type":"global no-selection fallback"}}]}
