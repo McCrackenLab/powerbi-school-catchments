@@ -1,0 +1,37 @@
+{
+  "input_dir": "incoming/scotland-secondary-non-denom",
+  "basename": "non_denom_pub_schlsn",
+  "shape_type_code": 5,
+  "shape_type_name": "POLYGON",
+  "record_count": 324,
+  "shape_count": 324,
+  "bbox": [
+    61135.44049799489,
+    530212.2716679329,
+    470332.00371450756,
+    1220301.501584022
+  ],
+  "field_names": [
+    "local_auth",
+    "school_nam",
+    "la_s_code",
+    "seed_code",
+    "uprn",
+    "address",
+    "type",
+    "level",
+    "email",
+    "phone",
+    "website",
+    "sh_date_up",
+    "sh_src",
+    "sh_src_id"
+  ],
+  "candidate_fields": [
+    "local_auth",
+    "school_nam",
+    "la_s_code",
+    "seed_code"
+  ],
+  "projection_wkt": "PROJCS[\"OSGB 1936 / British National Grid\", GEOGCS[\"OSGB 1936\", DATUM[\"OSGB 1936\", SPHEROID[\"Airy 1830\", 6377563.396, 299.3249646, AUTHORITY[\"EPSG\",\"7001\"]], TOWGS84[446.448, -125.157, 542.06, 0.15, 0.247, 0.842, -20.489], AUTHORITY[\"EPSG\",\"6277\"]], PRIMEM[\"Greenwich\", 0.0, AUTHORITY[\"EPSG\",\"8901\"]], UNIT[\"degree\", 0.017453292519943295], AXIS[\"Geodetic latitude\", NORTH], AXIS[\"Geodetic longitude\", EAST], AUTHORITY[\"EPSG\",\"4277\"]], PROJECTION[\"Transverse_Mercator\", AUTHORITY[\"EPSG\",\"9807\"]], PARAMETER[\"central_meridian\", -2.0], PARAMETER[\"latitude_of_origin\", 49.0], PARAMETER[\"scale_factor\", 0.9996012717], PARAMETER[\"false_easting\", 400000.0], PARAMETER[\"false_northing\", -100000.0], UNIT[\"m\", 1.0], AXIS[\"Easting\", EAST], AXIS[\"Northing\", NORTH], AUTHORITY[\"EPSG\",\"27700\"]]"
+}
