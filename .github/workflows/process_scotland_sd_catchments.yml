@@ -30,6 +30,10 @@ jobs:
           echo "Required previous SN lookup:"
           ls -la outputs/scotland-secondary-non-denom/school_reference_layer_lookup_plus_scotland_sn.csv || true
           echo ""
+          echo "Manual overrides:"
+          ls -la inputs/scotland_sd_manual_catchment_overrides.csv || true
+          head -10 inputs/scotland_sd_manual_catchment_overrides.csv || true
+          echo ""
           echo "Scripts:"
           ls -la scripts || true
 
@@ -43,13 +47,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyshp pandas pyproj
 
-      - name: Process denominational shapefile into split GeoJSON and lookup
+      - name: Process denominational shapefile into split and combined GeoJSON and lookup
         run: |
           python scripts/process_scotland_sd_catchments.py \
             --input-dir incoming/scotland-secondary-denom \
             --basename denom_pub_schlsd \
             --schools-csv inputs/scottish_secondary_schools_for_mapping.csv \
             --lookup-csv outputs/scotland-secondary-non-denom/school_reference_layer_lookup_plus_scotland_sn.csv \
+            --manual-overrides-csv inputs/scotland_sd_manual_catchment_overrides.csv \
             --geojson-output-dir scotland-secondary-denom-catchments \
             --outputs-dir outputs/scotland-secondary-denom \
             --github-raw-base-url https://raw.githubusercontent.com/McCrackenLab/powerbi-school-catchments/refs/heads/main/scotland-secondary-denom-catchments/
@@ -69,5 +74,5 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add scotland-secondary-denom-catchments outputs/scotland-secondary-denom
           git status --short
-          git diff --cached --quiet || git commit -m "Process Scotland secondary denominational catchments"
+          git diff --cached --quiet || git commit -m "Process Scotland secondary denominational catchments with combined school layers"
           git push
