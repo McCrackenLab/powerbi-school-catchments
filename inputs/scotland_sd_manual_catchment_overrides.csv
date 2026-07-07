@@ -1,0 +1,10 @@
+source_row,source_school_nam,source_local_auth,target_school_name,target_local_auth,override_reason
+14,ST AMBROSE HIGH SCHOOL (COATBRIDGE),Glasgow City,St Ambrose High School,North Lanarkshire,Cross-authority denominational catchment label refers to St Ambrose High School in Coatbridge
+19,ST THOMAS OF AQUIN'S RC HIGH SCHOOL,City of Edinburgh,St Thomas Of Aquin's High School,City of Edinburgh,Catchment file uses RC wording variant
+21,ST AUGUSTINE'S RC HIGH SCHOOL,City of Edinburgh,St Augustine's High School,City of Edinburgh,Catchment file uses RC wording variant
+25,TRINITY HIGH SCHOOL (SOUTH LANARKSHIRE),Glasgow City,Trinity High School,South Lanarkshire,Cross-authority denominational catchment label refers to South Lanarkshire Trinity High School
+26,ST AIDAN'S HIGH SCHOOL (NORTH LANARKSHIRE),South Lanarkshire,St Aidan's High School,North Lanarkshire,Cross-authority denominational catchment label refers to North Lanarkshire St Aidan's High School
+40,JOHN OGILVIE HIGH SCHOOL,South Lanarkshire,St John Ogilvie High School,South Lanarkshire,Catchment file omits St prefix
+56,ST NINIANS HIGH SCHOOL,East Renfrewshire,St Ninian's High School,East Renfrewshire,Catchment file omits apostrophe
+61,PROPERTIES IN THIS AREA HAVE ST THOMAS OF AQUIN'S AS THEIR CATCHMENT SCHOOL,City of Edinburgh,St Thomas Of Aquin's High School,City of Edinburgh,Descriptive catchment label maps to St Thomas Of Aquin's High School
+62,OUR LADY AND ST PATRICK'S,Argyll and Bute,Our Lady & St Patrick's High School,West Dunbartonshire,Cross-authority denominational catchment label refers to Our Lady & St Patrick's High School
