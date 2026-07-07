@@ -1,0 +1,24 @@
+source_row,source_school_nam,source_local_auth,target_school_name,target_local_auth,override_reason
+11,KELSO HIGH,Scottish Borders,Kelso High School,Scottish Borders,Shortened school name in catchment file
+26,EYEMOUTH HIGH,Scottish Borders,Eyemouth High School,Scottish Borders,Shortened school name in catchment file
+63,QUEENSFERRY HIGH SCHOOL,City of Edinburgh,Queensferry Community High School,City of Edinburgh,Catchment file uses shortened school name
+70,KIRKINTILLOCH HIGH,East Dunbartonshire,Kirkintilloch High School,East Dunbartonshire,Shortened school name in catchment file
+80,BO'NESS HIGH SCHOOL,Falkirk,Bo'ness Academy,Falkirk,Catchment file uses historic/common name
+86,JEDBURGH GRAMMAR CAMPUS,Scottish Borders,Jedburgh Grammar School,Scottish Borders,Catchment file uses campus wording
+108,HAWICK HIGH,Scottish Borders,Hawick High School,Scottish Borders,Shortened school name in catchment file
+132,CASTLEBRAE HIGH SCHOOL,City of Edinburgh,Castlebrae Community High School,City of Edinburgh,Catchment file uses shortened school name
+138,MUSSELBURGH GRAMMAR WEF AUG 23,East Lothian,Musselburgh Grammar School,East Lothian,Date suffix in catchment file
+145,DUNBAR GRAMMAR,East Lothian,Dunbar Grammar School,East Lothian,Shortened school name in catchment file
+158,ROSEHILL HIGH SCHOOL WEF AUG 23,East Lothian,Rosehill High School,East Lothian,Date suffix in catchment file
+159,PROPERTIES IN THIS AREA HAVE CASTLEBRAE HIGH AS THEIR CATCHMENT SCHOOL,City of Edinburgh,Castlebrae Community High School,City of Edinburgh,Descriptive catchment label maps to Castlebrae
+170,NORTH BERWICK HIGH,East Lothian,North Berwick High School,East Lothian,Shortened school name in catchment file
+172,LANARK GRAMMAR,South Lanarkshire,Lanark Grammar School,South Lanarkshire,Shortened school name in catchment file
+200,THE ROYAL HIGH SECONDARY SCHOOL,City of Edinburgh,The Royal High School,City of Edinburgh,Catchment file uses variant official name
+226,PROPERTIES IN THIS AREA HAVE LIBERTON HIGH AS THEIR CATCHMENT SCHOOL,City of Edinburgh,Liberton High School,City of Edinburgh,Descriptive catchment label maps to Liberton
+243,EARLSTON HIGH,Scottish Borders,Earlston High School,Scottish Borders,Shortened school name in catchment file
+244,PRESTON LODGE HIGH,East Lothian,Preston Lodge High School,East Lothian,Shortened school name in catchment file
+254,KIRKWALL GRAMMAR,Orkney Islands,Kirkwall Grammar School,Orkney Islands,Shortened school name in catchment file
+277,ROSS HIGH,East Lothian,Ross High School,East Lothian,Shortened school name in catchment file
+297,SELKIRK HIGH,Scottish Borders,Selkirk High School,Scottish Borders,Shortened school name in catchment file
+300,UDDINGSTON GRAMMAR,South Lanarkshire,Uddingston Grammar School,South Lanarkshire,Shortened school name in catchment file
+323,PEEBLES HIGH,Scottish Borders,Peebles High School,Scottish Borders,Shortened school name in catchment file
