@@ -26,7 +26,6 @@ def norm_text(value):
     value = str(value).strip().upper()
     value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
 
-    # Common naming normalisations
     value = value.replace(" WEF AUG 23", "")
     value = value.replace(" SECONDARY SCHOOL", " HIGH SCHOOL")
     value = value.replace(" SECONDARY", " HIGH SCHOOL")
@@ -34,7 +33,6 @@ def norm_text(value):
     value = value.replace(" COMMUNITY SCHOOL", " SCHOOL")
     value = value.replace(" GRAMMAR CAMPUS", " GRAMMAR SCHOOL")
 
-    # Roman Catholic variants
     value = value.replace(" R C ", " RC ")
     value = value.replace(" R.C. ", " RC ")
     value = value.replace(" ROMAN CATHOLIC ", " RC ")
@@ -77,11 +75,6 @@ def clean_seed(value):
 
 
 def transform_geometry(geom, transformer):
-    """
-    Transform a GeoJSON-like geometry from EPSG:27700 to EPSG:4326.
-    pyshp provides __geo_interface__ geometries.
-    """
-
     def transform_coords(coords):
         if (
             isinstance(coords, (list, tuple))
@@ -107,6 +100,7 @@ def main():
     parser.add_argument("--basename", required=True)
     parser.add_argument("--schools-csv", required=True)
     parser.add_argument("--lookup-csv", required=True)
+    parser.add_argument("--manual-overrides-csv", required=False, default="")
     parser.add_argument("--geojson-output-dir", required=True)
     parser.add_argument("--outputs-dir", required=True)
     parser.add_argument("--github-raw-base-url", required=True)
@@ -117,9 +111,11 @@ def main():
     shp_path = input_dir / f"{args.basename}.shp"
 
     geojson_output_dir = Path(args.geojson_output_dir)
+    combined_output_dir = geojson_output_dir / "combined-by-school"
     outputs_dir = Path(args.outputs_dir)
 
     geojson_output_dir.mkdir(parents=True, exist_ok=True)
+    combined_output_dir.mkdir(parents=True, exist_ok=True)
     outputs_dir.mkdir(parents=True, exist_ok=True)
 
     if not shp_path.exists():
@@ -127,6 +123,15 @@ def main():
 
     schools = pd.read_csv(args.schools_csv)
     lookup = pd.read_csv(args.lookup_csv)
+
+    manual_overrides = pd.DataFrame()
+
+    if args.manual_overrides_csv:
+        manual_overrides_path = Path(args.manual_overrides_csv)
+        if manual_overrides_path.exists():
+            manual_overrides = pd.read_csv(manual_overrides_path)
+        else:
+            print(f"Manual overrides file not found, continuing without overrides: {manual_overrides_path}")
 
     required_school_cols = [
         "SchoolName",
@@ -186,14 +191,56 @@ def main():
         .to_dict()
     )
 
+    school_key_to_info = (
+        schools.drop_duplicates("SchoolKey")
+        .set_index("SchoolKey")
+        .to_dict(orient="index")
+    )
+
+    manual_override_by_source_row = {}
+
+    if not manual_overrides.empty:
+        required_override_cols = [
+            "source_row",
+            "target_school_name",
+            "target_local_auth",
+        ]
+
+        missing_override_cols = [
+            c for c in required_override_cols
+            if c not in manual_overrides.columns
+        ]
+
+        if missing_override_cols:
+            raise ValueError(
+                f"Missing columns in manual overrides CSV: {missing_override_cols}"
+            )
+
+        for _, override_row in manual_overrides.iterrows():
+            source_row = int(override_row["source_row"])
+
+            target_school_name_norm = norm_text(override_row["target_school_name"])
+            target_local_auth_norm = norm_text(override_row["target_local_auth"])
+
+            manual_override_by_source_row[source_row] = {
+                "target_school_name": override_row["target_school_name"],
+                "target_local_auth": override_row["target_local_auth"],
+                "target_school_name_norm": target_school_name_norm,
+                "target_local_auth_norm": target_local_auth_norm,
+                "override_reason": override_row.get("override_reason", ""),
+            }
+
     reader = shapefile.Reader(str(shp_path))
     fields = [f[0] for f in reader.fields[1:]]
 
     transformer = Transformer.from_crs("EPSG:27700", "EPSG:4326", always_xy=True)
 
     match_rows = []
-    index_rows = []
-    url_updates = {}
+    row_index_rows = []
+    combined_index_rows = []
+
+    features_by_school_key = {}
+    row_urls_by_school_key = {}
 
     filename_counter = {}
 
@@ -211,9 +258,31 @@ def main():
         matched_school_key = ""
         matched_method = "unmatched"
         match_count = 0
+        manual_override_reason = ""
 
-        # 1. Seed-code match
-        if source_seed and source_seed in seed_to_keys:
+        manual_override = manual_override_by_source_row.get(idx)
+
+        if manual_override:
+            override_keys = name_la_to_keys.get(
+                (
+                    manual_override["target_school_name_norm"],
+                    manual_override["target_local_auth_norm"],
+                ),
+                [],
+            )
+
+            match_count = len(override_keys)
+            manual_override_reason = manual_override.get("override_reason", "")
+
+            if len(override_keys) == 1:
+                matched_school_key = override_keys[0]
+                matched_method = "manual_override"
+            elif len(override_keys) > 1:
+                matched_method = "manual_override_multiple"
+            else:
+                matched_method = "manual_override_target_not_found"
+
+        if not matched_school_key and source_seed and source_seed in seed_to_keys:
             keys = seed_to_keys[source_seed]
             match_count = len(keys)
 
@@ -223,7 +292,6 @@ def main():
             else:
                 matched_method = "seed_code_multiple"
 
-        # 2. School name + local authority match
         if not matched_school_key:
             keys = name_la_to_keys.get((source_school_norm, source_la_norm), [])
             match_count = len(keys)
@@ -234,7 +302,6 @@ def main():
             elif len(keys) > 1:
                 matched_method = "school_name_and_la_multiple"
 
-        # 3. School name only match
         if not matched_school_key:
             keys = name_to_keys.get(source_school_norm, [])
             match_count = len(keys)
@@ -257,12 +324,13 @@ def main():
         else:
             filename_counter[filename] = 1
 
-        geojson_url = args.github_raw_base_url.rstrip("/") + "/" + filename
+        row_geojson_url = args.github_raw_base_url.rstrip("/") + "/" + filename
 
         geom = shape_record.shape.__geo_interface__
         transformed_geom = transform_geometry(geom, transformer)
 
         feature_props = {
+            "source_row": idx,
             "source_school_nam": source_school_name,
             "source_local_auth": source_local_auth,
             "source_la_s_code": props.get("la_s_code", ""),
@@ -271,28 +339,30 @@ def main():
             "source_level": props.get("level", ""),
             "matched_school_key": matched_school_key,
             "matched_method": matched_method,
+            "manual_override_reason": manual_override_reason,
             "catchment_layer": "Scotland secondary denominational",
         }
 
-        fc = {
+        feature = {
+            "type": "Feature",
+            "geometry": transformed_geom,
+            "properties": feature_props,
+        }
+
+        row_fc = {
             "type": "FeatureCollection",
             "name": filename.replace(".geojson", ""),
-            "features": [
-                {
-                    "type": "Feature",
-                    "geometry": transformed_geom,
-                    "properties": feature_props,
-                }
-            ],
+            "features": [feature],
         }
 
         out_path = geojson_output_dir / filename
 
         with open(out_path, "w", encoding="utf-8") as f:
-            json.dump(fc, f, ensure_ascii=False, separators=(",", ":"))
+            json.dump(row_fc, f, ensure_ascii=False, separators=(",", ":"))
 
         if matched_school_key:
-            url_updates[matched_school_key] = geojson_url
+            features_by_school_key.setdefault(matched_school_key, []).append(feature)
+            row_urls_by_school_key.setdefault(matched_school_key, []).append(row_geojson_url)
 
         match_rows.append(
             {
@@ -303,15 +373,16 @@ def main():
                 "matched_school_key": matched_school_key,
                 "matched_method": matched_method,
                 "match_count": match_count,
+                "manual_override_reason": manual_override_reason,
                 "geojson_filename": filename,
-                "geojson_url": geojson_url,
+                "geojson_url": row_geojson_url,
             }
         )
 
-        index_rows.append(
+        row_index_rows.append(
             {
                 "geojson_filename": filename,
-                "geojson_url": geojson_url,
+                "geojson_url": row_geojson_url,
                 "source_school_nam": source_school_name,
                 "source_local_auth": source_local_auth,
                 "source_seed_code": source_seed,
@@ -320,8 +391,63 @@ def main():
             }
         )
 
+    combined_url_updates = {}
+
+    for school_key, features in features_by_school_key.items():
+        info = school_key_to_info.get(school_key, {})
+        school_name = str(info.get("SchoolName", school_key.split("|")[0])).strip()
+        postcode = str(info.get("PostCode_clean", school_key.split("|")[-1])).strip()
+        local_authority = str(info.get("LAName", "")).strip()
+
+        combined_filename = (
+            "scotland_sd_combined_"
+            + slugify(f"{local_authority}_{school_name}_{postcode}")
+            + ".geojson"
+        )
+
+        combined_url = (
+            args.github_raw_base_url.rstrip("/")
+            + "/combined-by-school/"
+            + combined_filename
+        )
+
+        combined_fc = {
+            "type": "FeatureCollection",
+            "name": combined_filename.replace(".geojson", ""),
+            "features": features,
+            "properties": {
+                "matched_school_key": school_key,
+                "school_name": school_name,
+                "school_postcode": postcode,
+                "local_authority": local_authority,
+                "catchment_layer": "Scotland secondary denominational",
+                "feature_count": len(features),
+            },
+        }
+
+        combined_path = combined_output_dir / combined_filename
+
+        with open(combined_path, "w", encoding="utf-8") as f:
+            json.dump(combined_fc, f, ensure_ascii=False, separators=(",", ":"))
+
+        combined_url_updates[school_key] = combined_url
+
+        combined_index_rows.append(
+            {
+                "matched_school_key": school_key,
+                "school_name": school_name,
+                "school_postcode": postcode,
+                "local_authority": local_authority,
+                "combined_geojson_filename": combined_filename,
+                "combined_geojson_url": combined_url,
+                "feature_count": len(features),
+                "row_geojson_urls": " | ".join(row_urls_by_school_key.get(school_key, [])),
+            }
+        )
+
     match_df = pd.DataFrame(match_rows)
-    index_df = pd.DataFrame(index_rows)
+    row_index_df = pd.DataFrame(row_index_rows)
+    combined_index_df = pd.DataFrame(combined_index_rows)
 
     updated_lookup = lookup.copy()
 
@@ -331,8 +457,8 @@ def main():
     def update_url(row):
         key = row["SchoolKey"]
 
-        if key in url_updates:
-            return url_updates[key]
+        if key in combined_url_updates:
+            return combined_url_updates[key]
 
         return row.get("CatchmentGeoJsonUrl", "")
 
@@ -346,7 +472,6 @@ def main():
         > 0
     )
 
-    # Preserve __ALL__ as no real catchment
     updated_lookup.loc[
         updated_lookup["SchoolKey"].eq("__ALL__"),
         "CatchmentGeoJsonUrl",
@@ -359,20 +484,27 @@ def main():
 
     updated_lookup_path = outputs_dir / "school_reference_layer_lookup_plus_scotland_sn_sd.csv"
     match_review_path = outputs_dir / "scotland_sd_catchment_match_review.csv"
-    index_path = outputs_dir / "scotland_sd_catchment_geojson_index.csv"
+    row_index_path = outputs_dir / "scotland_sd_catchment_geojson_index.csv"
+    combined_index_path = outputs_dir / "scotland_sd_combined_by_school_index.csv"
     summary_path = outputs_dir / "processing_summary.md"
 
     updated_lookup.to_csv(updated_lookup_path, index=False)
     match_df.to_csv(match_review_path, index=False)
-    index_df.to_csv(index_path, index=False)
+    row_index_df.to_csv(row_index_path, index=False)
+    combined_index_df.to_csv(combined_index_path, index=False)
 
     matched_count = int(match_df["matched_school_key"].fillna("").astype(str).str.len().gt(0).sum())
     unmatched_count = int(len(match_df) - matched_count)
 
     seed_matches = int((match_df["matched_method"] == "seed_code").sum())
+    manual_override_matches = int((match_df["matched_method"] == "manual_override").sum())
+    manual_override_target_not_found = int((match_df["matched_method"] == "manual_override_target_not_found").sum())
+    manual_override_multiple = int((match_df["matched_method"] == "manual_override_multiple").sum())
     name_la_matches = int((match_df["matched_method"] == "school_name_and_la").sum())
     name_only_matches = int((match_df["matched_method"] == "school_name_only").sum())
 
+    combined_school_count = len(combined_index_df)
+    multi_feature_school_count = int((combined_index_df["feature_count"] > 1).sum()) if len(combined_index_df) else 0
     lookup_real_count = int(updated_lookup["HasRealCatchmentGeoJson"].sum())
 
     summary = f"""# Scotland Secondary Denominational Catchment Processing Summary
@@ -382,21 +514,29 @@ def main():
 - Shapefile: `{shp_path}`
 - Schools CSV: `{args.schools_csv}`
 - Lookup CSV: `{args.lookup_csv}`
+- Manual overrides CSV: `{args.manual_overrides_csv}`
 
 ## Outputs
 
-- Split GeoJSON folder: `{geojson_output_dir}`
+- Row-level GeoJSON folder: `{geojson_output_dir}`
+- Combined per-school GeoJSON folder: `{combined_output_dir}`
 - Updated lookup: `{updated_lookup_path}`
 - Match review: `{match_review_path}`
-- GeoJSON index: `{index_path}`
+- Row-level GeoJSON index: `{row_index_path}`
+- Combined per-school GeoJSON index: `{combined_index_path}`
 
 ## Counts
 
 - Catchment records processed: `{len(match_df)}`
-- GeoJSON files created: `{len(index_df)}`
+- Row-level GeoJSON files created: `{len(row_index_df)}`
+- Combined per-school GeoJSON files created: `{combined_school_count}`
+- Schools with multiple denominational catchment features: `{multi_feature_school_count}`
 - Matched catchments: `{matched_count}`
 - Unmatched catchments: `{unmatched_count}`
 - Seed-code matches: `{seed_matches}`
+- Manual override matches: `{manual_override_matches}`
+- Manual override target not found: `{manual_override_target_not_found}`
+- Manual override multiple matches: `{manual_override_multiple}`
 - School name + LA matches: `{name_la_matches}`
 - School name only matches: `{name_only_matches}`
 - Lookup rows with real catchment URL after update: `{lookup_real_count}`
@@ -405,7 +545,9 @@ def main():
 
 The source shapefile is assumed to be EPSG:27700 British National Grid and is transformed to EPSG:4326 for GeoJSON output.
 
-This denominational run starts from the Scotland SN lookup and adds matched secondary denominational catchment URLs.
+Manual overrides are applied before automatic seed-code and name matching.
+
+For every matched school, the lookup now points to a combined per-school GeoJSON file. This avoids losing cross-authority or multi-part denominational catchment polygons when a school appears in more than one source catchment record.
 """
 
     summary_path.write_text(summary, encoding="utf-8")
