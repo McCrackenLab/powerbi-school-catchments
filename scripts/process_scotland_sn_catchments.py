@@ -17,30 +17,58 @@ def slugify(value):
 
 
 def norm_text(value):
-    if value is None or (isinstance(value, float) and math.isnan(value)):
+    if value is None:
         return ""
+
+    if isinstance(value, float) and math.isnan(value):
+        return ""
+
     value = str(value).strip().upper()
     value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+
+    # Normalise common school-name variants
+    value = value.replace(" WEF AUG 23", "")
+    value = value.replace(" SECONDARY SCHOOL", " HIGH SCHOOL")
+    value = value.replace(" SECONDARY", " HIGH SCHOOL")
+    value = value.replace(" COMMUNITY HIGH SCHOOL", " HIGH SCHOOL")
+    value = value.replace(" COMMUNITY SCHOOL", " SCHOOL")
+    value = value.replace(" GRAMMAR CAMPUS", " GRAMMAR SCHOOL")
+
+    if re.search(r"\bHIGH$", value):
+        value = value + " SCHOOL"
+
+    if re.search(r"\bGRAMMAR$", value):
+        value = value + " SCHOOL"
+
+    value = value.replace("THE ROYAL HIGH HIGH SCHOOL", "THE ROYAL HIGH SCHOOL")
+
     value = re.sub(r"[^A-Z0-9]+", " ", value)
     value = re.sub(r"\s+", " ", value).strip()
+
     return value
 
 
 def clean_seed(value):
     if value is None:
         return ""
+
     try:
         if isinstance(value, float) and math.isnan(value):
             return ""
+
         text = str(value).strip()
+
         if text == "":
             return ""
+
         if text.endswith(".0"):
             text = text[:-2]
-        # DBF numeric fields may arrive as ints/floats
+
         if re.fullmatch(r"\d+(\.0)?", text):
             text = str(int(float(text)))
+
         return text
+
     except Exception:
         return str(value).strip()
 
@@ -50,13 +78,17 @@ def transform_geometry(geom, transformer):
     Transform a GeoJSON-like geometry from EPSG:27700 to EPSG:4326.
     pyshp provides __geo_interface__ geometries.
     """
+
     def transform_coords(coords):
-        if isinstance(coords, (list, tuple)) and len(coords) == 2 and all(
-            isinstance(x, (int, float)) for x in coords
+        if (
+            isinstance(coords, (list, tuple))
+            and len(coords) == 2
+            and all(isinstance(x, (int, float)) for x in coords)
         ):
             x, y = coords
             lon, lat = transformer.transform(x, y)
             return [lon, lat]
+
         return [transform_coords(c) for c in coords]
 
     return {
@@ -67,6 +99,7 @@ def transform_geometry(geom, transformer):
 
 def main():
     parser = argparse.ArgumentParser()
+
     parser.add_argument("--input-dir", required=True)
     parser.add_argument("--basename", required=True)
     parser.add_argument("--schools-csv", required=True)
@@ -75,6 +108,7 @@ def main():
     parser.add_argument("--geojson-output-dir", required=True)
     parser.add_argument("--outputs-dir", required=True)
     parser.add_argument("--github-raw-base-url", required=True)
+
     args = parser.parse_args()
 
     input_dir = Path(args.input_dir)
@@ -86,30 +120,60 @@ def main():
     geojson_output_dir.mkdir(parents=True, exist_ok=True)
     outputs_dir.mkdir(parents=True, exist_ok=True)
 
+    if not shp_path.exists():
+        raise FileNotFoundError(f"Shapefile not found: {shp_path}")
+
     schools = pd.read_csv(args.schools_csv)
     lookup = pd.read_csv(args.lookup_csv)
+
     manual_overrides = pd.DataFrame()
 
-if args.manual_overrides_csv and Path(args.manual_overrides_csv).exists():
-    manual_overrides = pd.read_csv(args.manual_overrides_csv)
+    if args.manual_overrides_csv:
+        manual_overrides_path = Path(args.manual_overrides_csv)
+        if manual_overrides_path.exists():
+            manual_overrides = pd.read_csv(manual_overrides_path)
+        else:
+            print(f"Manual overrides file not found, continuing without overrides: {manual_overrides_path}")
 
-    # Ensure expected columns exist
-    required_school_cols = ["SchoolName", "PostCode_clean", "LAName", "SeedCode"]
-    missing_school_cols = [c for c in required_school_cols if c not in schools.columns]
+    required_school_cols = [
+        "SchoolName",
+        "PostCode_clean",
+        "LAName",
+        "SeedCode",
+    ]
+
+    missing_school_cols = [
+        c for c in required_school_cols
+        if c not in schools.columns
+    ]
+
     if missing_school_cols:
         raise ValueError(f"Missing columns in schools CSV: {missing_school_cols}")
 
-    required_lookup_cols = ["SchoolKey", "CatchmentGeoJsonUrl", "FallbackGeoJsonUrl"]
-    missing_lookup_cols = [c for c in required_lookup_cols if c not in lookup.columns]
+    required_lookup_cols = [
+        "SchoolKey",
+        "CatchmentGeoJsonUrl",
+        "FallbackGeoJsonUrl",
+    ]
+
+    missing_lookup_cols = [
+        c for c in required_lookup_cols
+        if c not in lookup.columns
+    ]
+
     if missing_lookup_cols:
         raise ValueError(f"Missing columns in lookup CSV: {missing_lookup_cols}")
 
     schools["SeedCode_clean"] = schools["SeedCode"].apply(clean_seed)
     schools["SchoolName_norm"] = schools["SchoolName"].apply(norm_text)
     schools["LAName_norm"] = schools["LAName"].apply(norm_text)
-    schools["SchoolKey"] = schools["SchoolName"].astype(str).str.strip() + "|" + schools["PostCode_clean"].astype(str).str.strip()
 
-    # Matching dictionaries
+    schools["SchoolKey"] = (
+        schools["SchoolName"].astype(str).str.strip()
+        + "|"
+        + schools["PostCode_clean"].astype(str).str.strip()
+    )
+
     seed_to_keys = (
         schools[schools["SeedCode_clean"].astype(str).str.len() > 0]
         .groupby("SeedCode_clean")["SchoolKey"]
@@ -128,37 +192,39 @@ if args.manual_overrides_csv and Path(args.manual_overrides_csv).exists():
         .apply(list)
         .to_dict()
     )
-manual_override_by_source_row = {}
 
-if not manual_overrides.empty:
-    required_override_cols = [
-        "source_row",
-        "target_school_name",
-        "target_local_auth",
-    ]
+    manual_override_by_source_row = {}
 
-    missing_override_cols = [
-        c for c in required_override_cols
-        if c not in manual_overrides.columns
-    ]
+    if not manual_overrides.empty:
+        required_override_cols = [
+            "source_row",
+            "target_school_name",
+            "target_local_auth",
+        ]
 
-    if missing_override_cols:
-        raise ValueError(
-            f"Missing columns in manual overrides CSV: {missing_override_cols}"
-        )
+        missing_override_cols = [
+            c for c in required_override_cols
+            if c not in manual_overrides.columns
+        ]
 
-    for _, override_row in manual_overrides.iterrows():
-        source_row = int(override_row["source_row"])
-        target_school_name_norm = norm_text(override_row["target_school_name"])
-        target_local_auth_norm = norm_text(override_row["target_local_auth"])
+        if missing_override_cols:
+            raise ValueError(
+                f"Missing columns in manual overrides CSV: {missing_override_cols}"
+            )
 
-        manual_override_by_source_row[source_row] = {
-            "target_school_name": override_row["target_school_name"],
-            "target_local_auth": override_row["target_local_auth"],
-            "target_school_name_norm": target_school_name_norm,
-            "target_local_auth_norm": target_local_auth_norm,
-            "override_reason": override_row.get("override_reason", ""),
-        }
+        for _, override_row in manual_overrides.iterrows():
+            source_row = int(override_row["source_row"])
+
+            target_school_name_norm = norm_text(override_row["target_school_name"])
+            target_local_auth_norm = norm_text(override_row["target_local_auth"])
+
+            manual_override_by_source_row[source_row] = {
+                "target_school_name": override_row["target_school_name"],
+                "target_local_auth": override_row["target_local_auth"],
+                "target_school_name_norm": target_school_name_norm,
+                "target_local_auth_norm": target_local_auth_norm,
+                "override_reason": override_row.get("override_reason", ""),
+            }
 
     reader = shapefile.Reader(str(shp_path))
     fields = [f[0] for f in reader.fields[1:]]
@@ -185,56 +251,58 @@ if not manual_overrides.empty:
         matched_school_key = ""
         matched_method = "unmatched"
         match_count = 0
+        manual_override_reason = ""
 
-# 0. Manual override match
-manual_override = manual_override_by_source_row.get(idx)
+        # 0. Manual override match
+        manual_override = manual_override_by_source_row.get(idx)
 
-if manual_override:
-    override_keys = name_la_to_keys.get(
-        (
-            manual_override["target_school_name_norm"],
-            manual_override["target_local_auth_norm"],
-        ),
-        [],
-    )
+        if manual_override:
+            override_keys = name_la_to_keys.get(
+                (
+                    manual_override["target_school_name_norm"],
+                    manual_override["target_local_auth_norm"],
+                ),
+                [],
+            )
 
-    match_count = len(override_keys)
+            match_count = len(override_keys)
+            manual_override_reason = manual_override.get("override_reason", "")
 
-    if len(override_keys) == 1:
-        matched_school_key = override_keys[0]
-        matched_method = "manual_override"
-    elif len(override_keys) > 1:
-        matched_method = "manual_override_multiple"
-    else:
-        matched_method = "manual_override_target_not_found"
+            if len(override_keys) == 1:
+                matched_school_key = override_keys[0]
+                matched_method = "manual_override"
+            elif len(override_keys) > 1:
+                matched_method = "manual_override_multiple"
+            else:
+                matched_method = "manual_override_target_not_found"
 
-# 1. Seed code match
-if not matched_school_key and source_seed and source_seed in seed_to_keys:
-
-        # 1. Seed code match
-        if source_seed and source_seed in seed_to_keys:
+        # 1. Seed-code match
+        if not matched_school_key and source_seed and source_seed in seed_to_keys:
             keys = seed_to_keys[source_seed]
             match_count = len(keys)
+
             if len(keys) == 1:
                 matched_school_key = keys[0]
                 matched_method = "seed_code"
             else:
                 matched_method = "seed_code_multiple"
 
-        # 2. School name + local authority
+        # 2. School name + local authority match
         if not matched_school_key:
             keys = name_la_to_keys.get((source_school_norm, source_la_norm), [])
             match_count = len(keys)
+
             if len(keys) == 1:
                 matched_school_key = keys[0]
                 matched_method = "school_name_and_la"
             elif len(keys) > 1:
                 matched_method = "school_name_and_la_multiple"
 
-        # 3. School name only
+        # 3. School name only match
         if not matched_school_key:
             keys = name_to_keys.get(source_school_norm, [])
             match_count = len(keys)
+
             if len(keys) == 1:
                 matched_school_key = keys[0]
                 matched_method = "school_name_only"
@@ -244,6 +312,7 @@ if not matched_school_key and source_seed and source_seed in seed_to_keys:
         filename_base = slugify(
             f"scotland_sn_{source_local_auth}_{source_school_name}_{source_seed or idx}"
         )
+
         filename = f"{filename_base}.geojson"
 
         if filename in filename_counter:
@@ -257,138 +326,3 @@ if not matched_school_key and source_seed and source_seed in seed_to_keys:
         geom = shape_record.shape.__geo_interface__
         transformed_geom = transform_geometry(geom, transformer)
 
-        feature_props = {
-            "source_school_nam": source_school_name,
-            "source_local_auth": source_local_auth,
-            "source_la_s_code": props.get("la_s_code", ""),
-            "source_seed_code": source_seed,
-            "source_type": props.get("type", ""),
-            "source_level": props.get("level", ""),
-            "matched_school_key": matched_school_key,
-            "matched_method": matched_method,
-            "catchment_layer": "Scotland secondary non-denominational",
-        }
-
-        fc = {
-            "type": "FeatureCollection",
-            "name": filename.replace(".geojson", ""),
-            "features": [
-                {
-                    "type": "Feature",
-                    "geometry": transformed_geom,
-                    "properties": feature_props,
-                }
-            ],
-        }
-
-        out_path = geojson_output_dir / filename
-        with open(out_path, "w", encoding="utf-8") as f:
-            json.dump(fc, f, ensure_ascii=False, separators=(",", ":"))
-
-        if matched_school_key:
-            url_updates[matched_school_key] = geojson_url
-
-        match_rows.append(
-            {
-                "source_row": idx,
-                "source_school_nam": source_school_name,
-                "source_local_auth": source_local_auth,
-                "source_seed_code": source_seed,
-                "matched_school_key": matched_school_key,
-                "matched_method": matched_method,
-                "match_count": match_count,
-                "geojson_filename": filename,
-                "geojson_url": geojson_url,
-            }
-        )
-
-        index_rows.append(
-            {
-                "geojson_filename": filename,
-                "geojson_url": geojson_url,
-                "source_school_nam": source_school_name,
-                "source_local_auth": source_local_auth,
-                "source_seed_code": source_seed,
-                "matched_school_key": matched_school_key,
-                "matched_method": matched_method,
-            }
-        )
-
-    match_df = pd.DataFrame(match_rows)
-    index_df = pd.DataFrame(index_rows)
-
-    # Update lookup
-    updated_lookup = lookup.copy()
-
-    if "HasRealCatchmentGeoJson" not in updated_lookup.columns:
-        updated_lookup["HasRealCatchmentGeoJson"] = False
-
-    def update_url(row):
-        key = row["SchoolKey"]
-        if key in url_updates:
-            return url_updates[key]
-        return row.get("CatchmentGeoJsonUrl", "")
-
-    updated_lookup["CatchmentGeoJsonUrl"] = updated_lookup.apply(update_url, axis=1)
-    updated_lookup["HasRealCatchmentGeoJson"] = updated_lookup["CatchmentGeoJsonUrl"].astype(str).str.len() > 0
-
-    # Preserve __ALL__ as no real catchment
-    updated_lookup.loc[updated_lookup["SchoolKey"].eq("__ALL__"), "CatchmentGeoJsonUrl"] = ""
-    updated_lookup.loc[updated_lookup["SchoolKey"].eq("__ALL__"), "HasRealCatchmentGeoJson"] = False
-
-    # Save outputs
-    updated_lookup_path = outputs_dir / "school_reference_layer_lookup_plus_scotland_sn.csv"
-    match_review_path = outputs_dir / "scotland_sn_catchment_match_review.csv"
-    index_path = outputs_dir / "scotland_sn_catchment_geojson_index.csv"
-    summary_path = outputs_dir / "processing_summary.md"
-
-    updated_lookup.to_csv(updated_lookup_path, index=False)
-    match_df.to_csv(match_review_path, index=False)
-    index_df.to_csv(index_path, index=False)
-
-    matched_count = int(match_df["matched_school_key"].astype(str).str.len().gt(0).sum())
-    unmatched_count = int(len(match_df) - matched_count)
-    seed_matches = int((match_df["matched_method"] == "seed_code").sum())
-    name_la_matches = int((match_df["matched_method"] == "school_name_and_la").sum())
-    name_only_matches = int((match_df["matched_method"] == "school_name_only").sum())
-    manual_override_matches = int((match_df["matched_method"]
-
-    summary = f"""# Scotland Secondary Non-Denominational Catchment Processing Summary
-
-## Inputs
-
-- Shapefile: `{shp_path}`
-- Schools CSV: `{args.schools_csv}`
-- Lookup CSV: `{args.lookup_csv}`
-
-## Outputs
-
-- Split GeoJSON folder: `{geojson_output_dir}`
-- Updated lookup: `{updated_lookup_path}`
-- Match review: `{match_review_path}`
-- GeoJSON index: `{index_path}`
-
-## Counts
-
-- Catchment records processed: `{len(match_df)}`
-- GeoJSON files created: `{len(index_df)}`
-- Matched catchments: `{matched_count}`
-- Unmatched catchments: `{unmatched_count}`
-- Seed-code matches: `{seed_matches}`
-- Manual override matches: `{manual_override_matches}`
-- School name + LA matches: `{name_la_matches}`
-- School name only matches: `{name_only_matches}`
-- Lookup rows with real catchment URL after update: `{int(updated_lookup["HasRealCatchmentGeoJson"].sum())}`
-
-## Notes
-
-The source shapefile is assumed to be EPSG:27700 British National Grid and is transformed to EPSG:4326 for GeoJSON output.
-"""
-
-    summary_path.write_text(summary, encoding="utf-8")
-
-    print(summary)
-
-
-if __name__ == "__main__":
-    main()
